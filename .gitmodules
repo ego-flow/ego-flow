@@ -4,3 +4,6 @@
 [submodule "ego-flow-server"]
 	path = ego-flow-server
 	url = https://github.com/ego-flow/ego-flow-server.git
+[submodule "ego-flow-dashboard"]
+	path = ego-flow-dashboard
+	url = https://github.com/ego-flow/ego-flow-dashboard.git
