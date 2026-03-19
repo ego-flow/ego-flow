@@ -20,7 +20,7 @@ Current note:
 
 ## Quick Entry Points
 
-Local backend dev bootstrap:
+Compose-based backend start:
 
 ```bash
 cd ~/ego-flow/ego-flow-server
@@ -28,12 +28,24 @@ cd ~/ego-flow/ego-flow-server
 ./scripts/dev.sh worker
 ```
 
-Full Docker stack bootstrap:
+Optional local bootstrap only:
+
+```bash
+cd ~/ego-flow/ego-flow-server
+./scripts/dev.sh setup
+```
+
+Direct Compose entry:
 
 ```bash
 cd ~/ego-flow/ego-flow-server
 docker compose up -d
 ```
+
+Notes:
+
+- `./scripts/dev.sh start` and `./scripts/dev.sh worker` now both use `docker compose up -d --build ...`
+- `./scripts/dev.sh setup` only prepares local `.env`, local npm dependencies, and local Prisma client generation
 
 More details:
 
