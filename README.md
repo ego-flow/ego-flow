@@ -1,54 +1,37 @@
 # EgoFlow Workspace
 
-`~/ego-flow` is the parent workspace that contains two separate projects:
+This workspace contains the main EgoFlow projects:
 
-- `ego-flow-app`: mobile/glasses communication app repository
-- `ego-flow-server`: backend/infrastructure repository
+- `ego-flow-app`: client/mobile or glasses-side application
+- `ego-flow-server`: backend APIs, worker, and supporting infrastructure
 
-Current note:
-
-- dashboard/frontend work is expected under `ego-flow-server/frontend`
-- there is no separate dashboard submodule in this workspace baseline
-
-## Directory Structure
+## Repository Layout
 
 ```text
-~/ego-flow/
+ego-flow/
 ├── ego-flow-app/
 └── ego-flow-server/
 ```
 
-## Quick Entry Points
+## Quick Start
 
-Compose-based backend start:
-
-```bash
-cd ~/ego-flow/ego-flow-server
-./scripts/dev.sh start
-./scripts/dev.sh worker
-```
-
-Optional local bootstrap only:
+The backend stack is the easiest entry point for local evaluation.
 
 ```bash
-cd ~/ego-flow/ego-flow-server
-./scripts/dev.sh setup
+cd ego-flow-server
+./scripts/dev.sh up
 ```
 
-Direct Compose entry:
+Useful follow-up commands:
 
 ```bash
-cd ~/ego-flow/ego-flow-server
-docker compose up -d
+./scripts/dev.sh logs
+./scripts/dev.sh ps
+./scripts/dev.sh down
 ```
 
-Notes:
+## Where To Start
 
-- `./scripts/dev.sh start` and `./scripts/dev.sh worker` now both use `docker compose up -d --build ...`
-- `./scripts/dev.sh setup` only prepares local `.env`, local npm dependencies, and local Prisma client generation
-
-More details:
-
-- Server README: `~/ego-flow/ego-flow-server/README.md`
-- Implementation guide: `~/ego-flow/ego-flow-server/guide/EgoFlow_IMPLEMENTATION_GUIDE.md`
-- Task roadmap: `~/ego-flow/ego-flow-server/guide/EgoFlow_TASK_ROADMAP.md`
+- Server setup and local Docker workflow: `ego-flow-server/README.md`
+- Server implementation details: `ego-flow-server/guide/EgoFlow_IMPLEMENTATION_GUIDE.md`
+- Server roadmap: `ego-flow-server/guide/EgoFlow_TASK_ROADMAP.md`
