@@ -1,6 +1,8 @@
 [submodule "ego-flow-app"]
 	path = ego-flow-app
 	url = https://github.com/ego-flow/ego-flow-app.git
+	branch = main
 [submodule "ego-flow-server"]
 	path = ego-flow-server
 	url = https://github.com/ego-flow/ego-flow-server.git
+	branch = main
