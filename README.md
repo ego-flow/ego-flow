@@ -3,7 +3,7 @@
 This workspace contains the main EgoFlow projects:
 
 - `ego-flow-app`: client/mobile or glasses-side application
-- `ego-flow-server`: backend APIs, worker, and supporting infrastructure
+- `ego-flow-server`: backend APIs, dashboard, worker, and supporting infrastructure
 
 ## Repository Layout
 
@@ -29,6 +29,8 @@ Useful follow-up commands:
 ./scripts/dev.sh ps
 ./scripts/dev.sh down
 ```
+
+`./scripts/dev.sh up` now starts the backend stack and dashboard together.
 
 ## Where To Start
 
