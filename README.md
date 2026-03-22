@@ -32,6 +32,14 @@ Useful follow-up commands:
 
 `./scripts/dev.sh up` now starts the backend stack and dashboard together.
 
+With the current dashboard implementation you can:
+
+- log in to the dashboard
+- browse processed videos
+- open video detail and delete videos
+- monitor active live HLS streams
+- manage users and target-directory settings as admin
+
 ## Where To Start
 
 - Server setup and local Docker workflow: `ego-flow-server/README.md`
