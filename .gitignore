@@ -1,2 +1,5 @@
 .codex
 session_context.md
+deploy/ec2/.env.prod
+ego-flow
+ego-flow.pub
