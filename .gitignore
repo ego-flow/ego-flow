@@ -2,4 +2,3 @@
 .codex
 deploy/ec2/.env.prod
 AGENTS.md
-RTMP_session.mmd
