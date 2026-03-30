@@ -18,11 +18,28 @@ pathDefaults:
   recordPath: /data/raw/%path/%Y-%m-%d_%H-%M-%S-%f
   recordFormat: fmp4
   recordPartDuration: 1s
-  recordSegmentDuration: 1h
+  recordSegmentDuration: 12h
   recordDeleteAfter: 0s
+  runOnReady: >
+    wget -qO /dev/null
+    --post-data="{\"path\":\"$MTX_PATH\",\"query\":\"$MTX_QUERY\",\"source_id\":\"$MTX_SOURCE_ID\",\"source_type\":\"$MTX_SOURCE_TYPE\"}"
+    --header="Content-Type: application/json"
+    http://backend:3000/api/v1/hooks/stream-ready
+  runOnNotReady: >
+    wget -qO /dev/null
+    --post-data="{\"path\":\"$MTX_PATH\",\"source_id\":\"$MTX_SOURCE_ID\",\"source_type\":\"$MTX_SOURCE_TYPE\"}"
+    --header="Content-Type: application/json"
+    http://backend:3000/api/v1/hooks/stream-not-ready
+  runOnRecordSegmentCreate: >
+    wget -qO /dev/null
+    --post-data="{\"path\":\"$MTX_PATH\",\"segment_path\":\"$MTX_SEGMENT_PATH\"}"
+    --header="Content-Type: application/json"
+    http://backend:3000/api/v1/hooks/recording-segment-create
   runOnRecordSegmentComplete: >
     wget -qO /dev/null
-    http://backend:3000/api/v1/hooks/recording-complete?path=$MTX_PATH&recording_path=$MTX_SEGMENT_PATH
+    --post-data="{\"path\":\"$MTX_PATH\",\"segment_path\":\"$MTX_SEGMENT_PATH\",\"segment_duration\":\"$MTX_SEGMENT_DURATION\"}"
+    --header="Content-Type: application/json"
+    http://backend:3000/api/v1/hooks/recording-segment-complete
 
 paths:
   "~^live/.+$":

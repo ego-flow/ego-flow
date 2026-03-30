@@ -1,0 +1,94 @@
+flowchart TD
+
+    Start([앱이 스트리밍 시작]) --> Register[POST /api/v1/streams/register]
+
+    subgraph BackendRegistration[백엔드 등록 경로]
+        Register --> AccessCheck[repository maintain 권한 확인]
+        AccessCheck --> LoadPointers[Redis live pointer 조회]
+        LoadPointers --> QueryPaths[MediaMTX path 목록 조회]
+        QueryPaths --> ConflictCheck{기존 active 또는 유효한 세션 존재}
+        ConflictCheck -->|예| Reject409[409 conflict 반환]
+        ConflictCheck -->|아니오| CreateSession[session record 생성]
+        CreateSession --> RegisteredState[세션 상태 registered]
+        RegisteredState --> WriteSessionRecord[stream session 키 저장]
+        WriteSessionRecord --> WriteHistory[stream path sessions 히스토리 저장]
+        WriteHistory --> WriteRepoPointer[stream repo 포인터 저장]
+        WriteRepoPointer --> WritePathPointer[stream path 포인터 저장]
+        WritePathPointer --> ReturnReady[rtmp_url 과 status ready 반환]
+    end
+
+    ReturnReady --> AppPublish[앱이 MediaMTX 로 RTMP publish]
+
+    subgraph PublishAuth[RTMP publish 인증]
+        AppPublish --> MediaMTXAuth[MediaMTX 가 POST /api/v1/auth/rtmp 호출]
+        MediaMTXAuth --> VerifyJwt[JWT 와 활성 사용자 검증]
+        VerifyJwt --> ReadPathPointer[stream path 포인터 조회]
+        ReadPathPointer --> ReadSessionRecord[stream session record 조회]
+        ReadSessionRecord --> OwnerCheck{토큰 사용자와 세션 사용자가 일치}
+        OwnerCheck -->|아니오| Reject401[401 반환]
+        OwnerCheck -->|예| EndedCheck{세션이 이미 ended 상태}
+        EndedCheck -->|예| Reject401
+        EndedCheck -->|아니오| PromotePublishing[세션 상태를 publishing 으로 전환]
+        PromotePublishing --> SetPublishStartedAt[publishStartedAt 기록]
+        SetPublishStartedAt --> ExtendLiveTtl[live pointer TTL 연장]
+        ExtendLiveTtl --> AllowPublish[200 allow 반환]
+    end
+
+    AllowPublish --> LiveIngest[Live RTMP ingest 진행]
+
+    subgraph LivePlayback[Active stream 과 playback]
+        LiveIngest --> ActiveQuery[GET /api/v1/streams/active]
+        ActiveQuery --> ScanRepoPointers[stream repo 키 scan]
+        ScanRepoPointers --> LoadLiveSessions[live session record 로드]
+        LoadLiveSessions --> FilterPublishing[publishing 세션만 유지]
+        FilterPublishing --> FilterAccess[repository 접근 권한 필터]
+        FilterAccess --> FilterRealPaths[MediaMTX active path 와 교집합]
+        FilterRealPaths --> ReturnActive[active stream 과 hls_url 반환]
+        ReturnActive --> HlsPlayback[대시보드가 MediaMTX 에서 HLS 재생]
+        HlsPlayback --> PlaybackAuth[MediaMTX read playback 인증]
+        PlaybackAuth --> PlaybackLookup[path 기준 live session 조회]
+        PlaybackLookup --> PlaybackAccess[repository read 권한 확인]
+        PlaybackAccess --> PlaybackAllowed[playback 허용 또는 거부]
+    end
+
+    LiveIngest --> RecordSegments[MediaMTX 가 raw segment 기록]
+    RecordSegments --> RecordingWebhook[MediaMTX 가 recording complete webhook 호출]
+
+    subgraph RecordingFlow[Recording webhook 처리]
+        RecordingWebhook --> CheckDuplicate[rawRecordingPath 중복 확인]
+        CheckDuplicate --> ResolveLive[path 기준 현재 live session 조회 시도]
+        ResolveLive --> ParseTimestamp[recording_path timestamp 파싱]
+        ParseTimestamp --> ResolveHistory[stream path sessions 히스토리 조회]
+        ResolveHistory --> MatchSession[가장 적절한 session record 매칭]
+        MatchSession --> CreateVideoRow[videos row 생성]
+        CreateVideoRow --> EnqueueJob[processing job enqueue]
+    end
+
+    LiveIngest --> EndDecision{스트림이 어떻게 종료되는가}
+
+    subgraph StopFlow[사용자 stop 요청]
+        EndDecision -->|사용자 stop| StopRequest[DELETE /api/v1/streams repositoryId]
+        StopRequest --> StopLookup[stream repo 포인터 조회]
+        StopLookup --> StopLoadSession[session record 로드]
+        StopLoadSession --> StopMarkEnded[상태를 ended 로 변경]
+        StopMarkEnded --> StopReason[endReason 을 stop_requested 로 기록]
+        StopReason --> DeleteRepoPointer[stream repo 포인터 삭제]
+        DeleteRepoPointer --> DeletePathPointer[stream path 포인터 삭제]
+        DeletePathPointer --> StopDone[세션 authorization 제거]
+    end
+
+    subgraph ReconcileLoop[예기치 않은 종료 정리]
+        EndDecision -->|네트워크 앱 또는 RTMP 실패| ReconcileTick[주기적 reconcile loop]
+        ReconcileTick --> ReconcileScan[stream repo 키 scan]
+        ReconcileScan --> ReconcileLoad[live session record 로드]
+        ReconcileLoad --> ReconcilePaths[MediaMTX path 목록 조회]
+        ReconcilePaths --> ReconcileState{세션 상태와 path 존재 여부}
+        ReconcileState -->|registered timeout| EndRegistration[ended 처리 후 endReason registration_expired 기록]
+        ReconcileState -->|publishing 이지만 path 없음| EndPublisherGone[ended 처리 후 endReason publisher_gone 기록]
+        EndRegistration --> ReconcileDeletePointers[live pointer 삭제]
+        EndPublisherGone --> ReconcileDeletePointers
+    end
+
+    StopDone --> SessionEnded([세션 종료])
+    ReconcileDeletePointers --> SessionEnded
+    EnqueueJob --> VideoReady([video row 생성 및 processing queue 등록])
