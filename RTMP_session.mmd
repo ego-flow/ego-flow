@@ -1,94 +1,118 @@
 flowchart TD
 
-    Start([앱이 스트리밍 시작]) --> Register[POST /api/v1/streams/register]
+    Start["사용자가 앱에서 Start Streaming<br/>StreamViewModel.kt::startStream"] --> Login["앱이 backend 로그인<br/>EgoFlowAuthClient.kt::login<br/>EgoFlowBackendClient.kt::login"]
+    Login --> Register["POST /api/v1/streams/register<br/>EgoFlowStreamClient.kt::registerStream<br/>EgoFlowBackendClient.kt::registerStreamSession"]
 
-    subgraph BackendRegistration[백엔드 등록 경로]
-        Register --> AccessCheck[repository maintain 권한 확인]
-        AccessCheck --> LoadPointers[Redis live pointer 조회]
-        LoadPointers --> QueryPaths[MediaMTX path 목록 조회]
-        QueryPaths --> ConflictCheck{기존 active 또는 유효한 세션 존재}
-        ConflictCheck -->|예| Reject409[409 conflict 반환]
-        ConflictCheck -->|아니오| CreateSession[session record 생성]
-        CreateSession --> RegisteredState[세션 상태 registered]
-        RegisteredState --> WriteSessionRecord[stream session 키 저장]
-        WriteSessionRecord --> WriteHistory[stream path sessions 히스토리 저장]
-        WriteHistory --> WriteRepoPointer[stream repo 포인터 저장]
-        WriteRepoPointer --> WritePathPointer[stream path 포인터 저장]
-        WritePathPointer --> ReturnReady[rtmp_url 과 status ready 반환]
+    subgraph RegisterFlow[등록과 예약 생성]
+        Register --> AccessCheck["repository maintain 권한 확인<br/>repo-access.middleware.ts::repoAccess<br/>repository.service.ts::assertRepositoryAccess"]
+        AccessCheck --> PathCheck["repository path 사용 가능 여부 확인<br/>stream.service.ts::ensureRepositoryPathIsAvailable"]
+        PathCheck --> CreatePending["RecordingSession 생성<br/>recording-session.service.ts::createSession"]
+        CreatePending --> PendingState["상태 PENDING<br/>recording-session.service.ts::createSession"]
+        PendingState --> WritePendingRedis["Redis live pointer 저장<br/>recording-session.service.ts::createSession"]
+        WritePendingRedis --> ReturnRegister["recording_session_id + rtmp_url + status ready 반환<br/>stream.service.ts::registerSession"]
     end
 
-    ReturnReady --> AppPublish[앱이 MediaMTX 로 RTMP publish]
+    ReturnRegister --> Publish["앱이 RTMP publish 시작<br/>StreamViewModel.kt::startRtmpTransport<br/>RtmpStreamer.kt::start<br/>RtmpPublisher.kt::connect"]
 
     subgraph PublishAuth[RTMP publish 인증]
-        AppPublish --> MediaMTXAuth[MediaMTX 가 POST /api/v1/auth/rtmp 호출]
-        MediaMTXAuth --> VerifyJwt[JWT 와 활성 사용자 검증]
-        VerifyJwt --> ReadPathPointer[stream path 포인터 조회]
-        ReadPathPointer --> ReadSessionRecord[stream session record 조회]
-        ReadSessionRecord --> OwnerCheck{토큰 사용자와 세션 사용자가 일치}
-        OwnerCheck -->|아니오| Reject401[401 반환]
-        OwnerCheck -->|예| EndedCheck{세션이 이미 ended 상태}
-        EndedCheck -->|예| Reject401
-        EndedCheck -->|아니오| PromotePublishing[세션 상태를 publishing 으로 전환]
-        PromotePublishing --> SetPublishStartedAt[publishStartedAt 기록]
-        SetPublishStartedAt --> ExtendLiveTtl[live pointer TTL 연장]
-        ExtendLiveTtl --> AllowPublish[200 allow 반환]
+        Publish --> RtmpAuth["MediaMTX -> POST /api/v1/auth/rtmp<br/>mediamtx.yml::authHTTPAddress<br/>auth.routes.ts::POST /rtmp"]
+        RtmpAuth --> VerifyJwt["JWT 검증 및 활성 사용자 확인<br/>auth.service.ts::verifyRtmpAuthorization"]
+        VerifyJwt --> LookupLivePath["Redis path pointer 조회<br/>stream.service.ts::findLiveSessionByStreamPath<br/>recording-session.service.ts::getLiveCacheByPath"]
+        LookupLivePath --> MatchOwner{"토큰 사용자와 recording 사용자 일치<br/>auth.service.ts::verifyRtmpAuthorization"}
+        MatchOwner -->|아니오| RejectPublish["401 거부<br/>auth.routes.ts::POST /rtmp"]
+        MatchOwner -->|예| ExtendTtl["PENDING live pointer TTL 연장<br/>stream.service.ts::activateSession<br/>recording-session.service.ts::promoteLivePointerTtl"]
+        ExtendTtl --> AllowPublish["200 허용<br/>auth.routes.ts::POST /rtmp"]
     end
 
-    AllowPublish --> LiveIngest[Live RTMP ingest 진행]
+    AllowPublish --> StreamReadyHook["MediaMTX -> stream-ready hook<br/>mediamtx.yml::runOnReady<br/>stream-ready-wrapper.sh"]
 
-    subgraph LivePlayback[Active stream 과 playback]
-        LiveIngest --> ActiveQuery[GET /api/v1/streams/active]
-        ActiveQuery --> ScanRepoPointers[stream repo 키 scan]
-        ScanRepoPointers --> LoadLiveSessions[live session record 로드]
-        LoadLiveSessions --> FilterPublishing[publishing 세션만 유지]
-        FilterPublishing --> FilterAccess[repository 접근 권한 필터]
-        FilterAccess --> FilterRealPaths[MediaMTX active path 와 교집합]
-        FilterRealPaths --> ReturnActive[active stream 과 hls_url 반환]
-        ReturnActive --> HlsPlayback[대시보드가 MediaMTX 에서 HLS 재생]
-        HlsPlayback --> PlaybackAuth[MediaMTX read playback 인증]
-        PlaybackAuth --> PlaybackLookup[path 기준 live session 조회]
-        PlaybackLookup --> PlaybackAccess[repository read 권한 확인]
-        PlaybackAccess --> PlaybackAllowed[playback 허용 또는 거부]
+    subgraph ReadyFlow[실제 송출 시작 확정]
+        StreamReadyHook --> ResolveReadySession["sourceId 또는 path 기준 session 조회<br/>hooks.routes.ts::POST /stream-ready<br/>recording-session.service.ts::resolveRecordingSessionIdForReady"]
+        ResolveReadySession --> PromoteStreaming["RecordingSession 상태를 STREAMING 으로 전환<br/>recording-session.service.ts::handleStreamReady"]
+        PromoteStreaming --> SaveSource["sourceId sourceType readyAt 저장<br/>recording-session.service.ts::handleStreamReady"]
+        SaveSource --> RefreshLiveRedis["Redis repo path source pointer 갱신<br/>recording-session.service.ts::handleStreamReady"]
     end
 
-    LiveIngest --> RecordSegments[MediaMTX 가 raw segment 기록]
-    RecordSegments --> RecordingWebhook[MediaMTX 가 recording complete webhook 호출]
+    RefreshLiveRedis --> LiveStreaming["실시간 송출 진행<br/>RtmpStreamer.kt::sendGlassesFrame/sendBitmapFrame"]
 
-    subgraph RecordingFlow[Recording webhook 처리]
-        RecordingWebhook --> CheckDuplicate[rawRecordingPath 중복 확인]
-        CheckDuplicate --> ResolveLive[path 기준 현재 live session 조회 시도]
-        ResolveLive --> ParseTimestamp[recording_path timestamp 파싱]
-        ParseTimestamp --> ResolveHistory[stream path sessions 히스토리 조회]
-        ResolveHistory --> MatchSession[가장 적절한 session record 매칭]
-        MatchSession --> CreateVideoRow[videos row 생성]
-        CreateVideoRow --> EnqueueJob[processing job enqueue]
+    subgraph ActiveAndPlayback[active 조회와 playback]
+        LiveStreaming --> ActiveQuery["GET /api/v1/streams/active<br/>frontend live.tsx::requestActiveStreams<br/>frontend api/streams.ts::requestActiveStreams"]
+        ActiveQuery --> LoadStreamingFromDb["DB에서 STREAMING 세션 조회<br/>stream.service.ts::listActiveSessions"]
+        LoadStreamingFromDb --> FilterAccess["repository read 권한 필터<br/>stream.service.ts::listActiveSessions<br/>repository.service.ts::getRepositoryAccess"]
+        FilterAccess --> FilterActivePath["MediaMTX active path 와 교집합<br/>stream.service.ts::getActiveRepositoryNames"]
+        FilterActivePath --> ReturnActive["hls_url 포함 active stream 반환<br/>stream.service.ts::listActiveSessions"]
+        ReturnActive --> Playback["대시보드가 HLS 재생<br/>frontend live.tsx::LivePage<br/>frontend HlsPlayer.tsx"]
+        Playback --> ReadAuth["MediaMTX read playback auth<br/>mediamtx.yml::authHTTPAddress<br/>auth.routes.ts::POST /rtmp"]
+        ReadAuth --> CheckPlaybackAccess["repository read 권한 확인<br/>auth.service.ts::verifyRtmpAuthorization"]
+        CheckPlaybackAccess --> PlaybackAllowed["재생 허용 또는 거부<br/>auth.routes.ts::POST /rtmp"]
     end
 
-    LiveIngest --> EndDecision{스트림이 어떻게 종료되는가}
+    LiveStreaming --> SegmentCreateHook["MediaMTX -> recording-segment-create hook<br/>mediamtx.yml::runOnRecordSegmentCreate<br/>segment-create-wrapper.sh"]
+    SegmentCreateHook --> CreateSegment["RecordingSegment 생성 또는 upsert<br/>hooks.routes.ts::POST /recording-segment-create<br/>recording-session.service.ts::handleSegmentCreate"]
+    CreateSegment --> WritingSegment["segment 상태 WRITING<br/>recording-session.service.ts::handleSegmentCreate"]
 
-    subgraph StopFlow[사용자 stop 요청]
-        EndDecision -->|사용자 stop| StopRequest[DELETE /api/v1/streams repositoryId]
-        StopRequest --> StopLookup[stream repo 포인터 조회]
-        StopLookup --> StopLoadSession[session record 로드]
-        StopLoadSession --> StopMarkEnded[상태를 ended 로 변경]
-        StopMarkEnded --> StopReason[endReason 을 stop_requested 로 기록]
-        StopReason --> DeleteRepoPointer[stream repo 포인터 삭제]
-        DeleteRepoPointer --> DeletePathPointer[stream path 포인터 삭제]
-        DeletePathPointer --> StopDone[세션 authorization 제거]
+    LiveStreaming --> SegmentCompleteHook["MediaMTX -> recording-segment-complete hook<br/>mediamtx.yml::runOnRecordSegmentComplete<br/>segment-complete-wrapper.sh"]
+    SegmentCompleteHook --> CompleteSegment["RecordingSegment 상태 COMPLETED<br/>hooks.routes.ts::POST /recording-segment-complete<br/>recording-session.service.ts::handleSegmentComplete"]
+    CompleteSegment --> MaybeFinalize{"RecordingSession 이 FINALIZING 인가<br/>recording-session.service.ts::handleSegmentComplete"}
+    MaybeFinalize -->|예| RetryFinalize["finalize enqueue 재시도<br/>recording-session.service.ts::tryEnqueueFinalize"]
+    MaybeFinalize -->|아니오| KeepStreaming["계속 recording<br/>recording-session.service.ts::handleSegmentComplete"]
+
+    LiveStreaming --> StopDecision{"어떻게 종료되는가<br/>StreamViewModel.kt::stopStream<br/>recording-session.service.ts::handleStreamNotReady/reconcileSessions"}
+
+    subgraph StopRequest[명시적 종료]
+        StopDecision -->|앱 Stop 버튼| UserStop["POST /api/v1/recordings/:id/stop reason USER_STOP<br/>StreamViewModel.kt::stopStream<br/>EgoFlowBackendClient.kt::stopStreamSession"]
+        StopDecision -->|glasses 촬영 종료| GlassesStop["POST /api/v1/recordings/:id/stop reason GLASSES_STOP<br/>StreamViewModel.kt::stopStream<br/>EgoFlowBackendClient.kt::stopStreamSession"]
+        UserStop --> CheckStopAccess["repository maintain 권한 확인<br/>recordings.routes.ts<br/>repository.service.ts::assertRepositoryAccess"]
+        GlassesStop --> CheckStopAccess
+        CheckStopAccess --> MarkStopRequested["RecordingSession 상태 STOP_REQUESTED<br/>recording-session.service.ts::requestStop"]
+        MarkStopRequested --> SaveStopMeta["endReason stopRequestedAt 기록<br/>recording-session.service.ts::requestStop"]
+        SaveStopMeta --> UpdateLiveCache["Redis live cache status 갱신<br/>recording-session.service.ts::requestStop"]
     end
 
-    subgraph ReconcileLoop[예기치 않은 종료 정리]
-        EndDecision -->|네트워크 앱 또는 RTMP 실패| ReconcileTick[주기적 reconcile loop]
-        ReconcileTick --> ReconcileScan[stream repo 키 scan]
-        ReconcileScan --> ReconcileLoad[live session record 로드]
-        ReconcileLoad --> ReconcilePaths[MediaMTX path 목록 조회]
-        ReconcilePaths --> ReconcileState{세션 상태와 path 존재 여부}
-        ReconcileState -->|registered timeout| EndRegistration[ended 처리 후 endReason registration_expired 기록]
-        ReconcileState -->|publishing 이지만 path 없음| EndPublisherGone[ended 처리 후 endReason publisher_gone 기록]
-        EndRegistration --> ReconcileDeletePointers[live pointer 삭제]
-        EndPublisherGone --> ReconcileDeletePointers
+    subgraph UnexpectedDisconnect[비정상 종료]
+        StopDecision -->|네트워크 단절 앱 크래시 RTMP 끊김| NotReadyHook["MediaMTX -> stream-not-ready hook<br/>mediamtx.yml::runOnNotReady<br/>stream-not-ready-wrapper.sh"]
+        StopDecision -->|hook 누락 또는 상태 꼬임| ReconcileTick["reconcile loop<br/>index.ts::start<br/>stream.service.ts::startReconcileLoop"]
+        ReconcileTick --> ReconcileCheck["DB 상태와 MediaMTX active path 대조<br/>recording-session.service.ts::reconcileSessions"]
+        ReconcileCheck --> PendingTimeout{"PENDING timeout 인가<br/>recording-session.service.ts::reconcileSessions"}
+        PendingTimeout -->|예| AbortPending["ABORTED + REGISTRATION_TIMEOUT<br/>recording-session.service.ts::reconcileSessions"]
+        PendingTimeout -->|아니오| MissingPublisher{"STREAMING 또는 STOP_REQUESTED 인데 path 없음<br/>recording-session.service.ts::reconcileSessions"}
+        MissingPublisher -->|예| ReconcileFinalize["FINALIZING 전환<br/>recording-session.service.ts::reconcileSessions"]
     end
 
-    StopDone --> SessionEnded([세션 종료])
-    ReconcileDeletePointers --> SessionEnded
-    EnqueueJob --> VideoReady([video row 생성 및 processing queue 등록])
+    UpdateLiveCache --> NotReadyHook
+
+    subgraph NotReadyAndFinalize[실제 송출 종료 후 마무리]
+        NotReadyHook --> ResolveNotReady["sourceId path DB fallback 으로 session 조회<br/>recording-session.service.ts::handleStreamNotReady"]
+        ResolveNotReady --> FinalizingState["RecordingSession 상태 FINALIZING<br/>recording-session.service.ts::handleStreamNotReady"]
+        FinalizingState --> SaveNotReady["notReadyAt 기록<br/>recording-session.service.ts::handleStreamNotReady"]
+        SaveNotReady --> ClearLivePointers["Redis repo path source pointer 삭제<br/>recording-session.service.ts::clearLivePointers"]
+        ClearLivePointers --> TryFinalize["tryEnqueueFinalize 실행<br/>recording-session.service.ts::tryEnqueueFinalize"]
+        ReconcileFinalize --> TryFinalize
+        RetryFinalize --> TryFinalize
+        AbortPending --> EndWithoutVideo(["publish 되지 못한 예약 종료<br/>recording-session.service.ts::reconcileSessions"])
+    end
+
+    subgraph FinalizeRules[finalize enqueue 조건]
+        TryFinalize --> CompletedSegments{"COMPLETED segment 존재<br/>recording-session.service.ts::tryEnqueueFinalize"}
+        CompletedSegments -->|없음 grace 이전| WaitMore["FINALIZING 유지 후 재시도<br/>recording-session.service.ts::tryEnqueueFinalize"]
+        CompletedSegments -->|없음 grace 초과| FailNoSegment["FAILED<br/>recording-session.service.ts::markSessionFailed"]
+        CompletedSegments -->|있음| WritingSegments{"WRITING segment 존재<br/>recording-session.service.ts::tryEnqueueFinalize"}
+        WritingSegments -->|있음 max wait 이전| WaitFlush["마지막 flush 대기<br/>recording-session.service.ts::tryEnqueueFinalize"]
+        WritingSegments -->|있음 max wait 초과| FailFlushTimeout["FAILED<br/>recording-session.service.ts::markSessionFailed"]
+        WritingSegments -->|없음| EnqueueFinalize["recording-finalize job enqueue<br/>processing.service.ts::enqueueRecordingFinalize"]
+    end
+
+    subgraph WorkerFlow[최종 video 생성]
+        EnqueueFinalize --> LoadRecording["worker가 RecordingSession 과 Segment 조회<br/>recording-finalize.worker.ts::processRecordingFinalize"]
+        LoadRecording --> SegmentCount{"COMPLETED segment 개수<br/>recording-finalize.worker.ts::processRecordingFinalize"}
+        SegmentCount -->|1개| UseSingleRaw["단일 raw 사용<br/>recording-finalize.worker.ts::processRecordingFinalize"]
+        SegmentCount -->|2개 이상| MergeSegments["segment 병합<br/>recording-finalize.worker.ts::processRecordingFinalize<br/>encoding.ts::concatSegments"]
+        UseSingleRaw --> EncodeVideo["기존 인코딩 파이프라인 실행<br/>encoding.ts::encodeVlmVideo<br/>encoding.ts::encodeDashboardVideo<br/>encoding.ts::encodeThumbnail"]
+        MergeSegments --> EncodeVideo
+        EncodeVideo --> SaveVideo["Video 1개 생성 또는 업데이트<br/>recording-finalize.worker.ts::processRecordingFinalize"]
+        SaveVideo --> MarkCompleted["RecordingSession 상태 COMPLETED<br/>recording-finalize.worker.ts::processRecordingFinalize"]
+    end
+
+    FailNoSegment --> FailedEnd(["recording 실패 종료<br/>recording-session.service.ts::markSessionFailed"])
+    FailFlushTimeout --> FailedEnd
+    MarkCompleted --> CompletedEnd(["RecordingSession 1개 -> Final Video 1개<br/>recording-finalize.worker.ts::processRecordingFinalize"])
