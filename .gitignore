@@ -1,4 +1,6 @@
 .claude
 .codex
-deploy/ec2/.env.prod
+deploy/ec2/.env
+deploy/ec2/.env.compose
+deploy/ec2/config.json
 AGENTS.md
