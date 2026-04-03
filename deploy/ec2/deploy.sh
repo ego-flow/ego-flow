@@ -10,6 +10,9 @@ RELEASES_ROOT="${RELEASES_ROOT:-/opt/egoflow/releases}"
 APP_ENV_FILE="$CONFIG_ROOT/.env"
 COMPOSE_ENV_FILE="$CONFIG_ROOT/.env.compose"
 CONFIG_FILE="$CONFIG_ROOT/config.json"
+VERBOSE_DEPLOY="${VERBOSE_DEPLOY:-1}"
+TRACE_DEPLOY="${TRACE_DEPLOY:-1}"
+CURRENT_ACTION=""
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -24,6 +27,60 @@ require_cmd curl
 compose_cmd() {
   docker compose --env-file "$COMPOSE_ENV_FILE" -f "$COMPOSE_BASE_FILE" -f "$COMPOSE_PROD_FILE" "$@"
 }
+
+print_header() {
+  local title="$1"
+  printf '\n=== %s ===\n' "$title"
+}
+
+trace_on() {
+  if [[ "$TRACE_DEPLOY" == "1" ]]; then
+    set -x
+  fi
+}
+
+trace_off() {
+  if [[ "$TRACE_DEPLOY" == "1" ]]; then
+    set +x
+  fi
+}
+
+dump_compose_diagnostics() {
+  print_header "docker compose ps"
+  compose_cmd ps || true
+
+  local service
+  for service in backend worker dashboard proxy mediamtx postgres redis; do
+    print_header "${service} logs"
+    compose_cmd logs --tail=200 "$service" || true
+  done
+
+  local container
+  for container in \
+    ego-flow-server-backend-1 \
+    ego-flow-server-worker-1 \
+    ego-flow-server-dashboard-1 \
+    ego-flow-server-proxy-1 \
+    ego-flow-server-mediamtx-1 \
+    ego-flow-server-postgres-1 \
+    ego-flow-server-redis-1
+  do
+    print_header "${container} health"
+    docker inspect "$container" --format '{{json .State.Health}}' 2>/dev/null || true
+  done
+}
+
+on_error() {
+  local exit_code="$1"
+  local line_no="$2"
+
+  trace_off
+  echo "deploy.sh failed during '${CURRENT_ACTION:-unknown}' at line ${line_no} with exit code ${exit_code}"
+  dump_compose_diagnostics
+  exit "$exit_code"
+}
+
+trap 'on_error $? $LINENO' ERR
 
 read_compose_value() {
   local key="$1"
@@ -162,6 +219,7 @@ check_http_status() {
 }
 
 smoke_test() {
+  CURRENT_ACTION="smoke-test"
   compose_cmd ps
   check_http_status "http://127.0.0.1:${PUBLIC_HTTP_PORT}/api/v1/health" '^(200)$'
   check_http_status "http://127.0.0.1:${PUBLIC_HTTP_PORT}/api-docs" '^(200|301|302|307|308)$'
@@ -170,18 +228,41 @@ smoke_test() {
 }
 
 deploy_stack() {
+  CURRENT_ACTION="deploy"
+
+  if [[ "$VERBOSE_DEPLOY" == "1" ]]; then
+    print_header "deploy context"
+    echo "repo_root=$REPO_ROOT"
+    echo "config_root=$CONFIG_ROOT"
+    echo "releases_root=$RELEASES_ROOT"
+    echo "data_root=$DATA_ROOT"
+    echo "public_http_port=$PUBLIC_HTTP_PORT"
+    echo "rtmp_port=$RTMP_PORT"
+    echo "hls_port=$HLS_PORT"
+    echo "git_sha=$(current_git_sha)"
+    print_header "compose config"
+    compose_cmd config
+  fi
+
   if [[ -n "${GHCR_TOKEN:-}" ]]; then
     if [[ -z "${GHCR_USERNAME:-}" ]]; then
       echo "GHCR_USERNAME is required when GHCR_TOKEN is provided."
       exit 1
     fi
 
+    trace_off
     printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
+    trace_on
   fi
 
   cd "$REPO_ROOT"
+  trace_on
   compose_cmd pull
   compose_cmd up -d --remove-orphans
+  trace_off
+  if [[ "$VERBOSE_DEPLOY" == "1" ]]; then
+    dump_compose_diagnostics
+  fi
   record_release_metadata
   docker image prune -f
 }

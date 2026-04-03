@@ -41,6 +41,7 @@ This deployment path is designed for GitHub Actions:
 - Production compose is rendered from `ego-flow-server/compose.yml` and `ego-flow-server/compose.prod.yml`.
 - `compose.yml` keeps the shared service contract, while `compose.prod.yml` supplies published ports, bind mounts, and production runtime files.
 - `deploy/ec2/deploy.sh` reads the immutable image tags and `DATA_ROOT` from `/opt/egoflow/config/.env.compose`.
+- `deploy/ec2/deploy.sh` prints the resolved compose config during deploy and dumps `docker compose ps`, service logs, and container health details automatically if deploy or smoke-test fails.
 - Production data changes must follow the data-preservation runbook instead of `down -v` or data-directory deletion.
 - `ego-flow-server/Caddyfile` is shared by the local and EC2 compose stacks and fronts both the dashboard and API on `PUBLIC_HTTP_PORT`.
 
