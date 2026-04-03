@@ -144,6 +144,8 @@ jobs:
             cd '${DEPLOY_PATH}'
             git fetch --depth=1 origin main
             git checkout --detach '${GITHUB_SHA}'
+            git submodule sync --recursive
+            git submodule update --init --recursive --checkout
             mkdir -p '${CONFIG_PATH}'
             mkdir -p '${RELEASES_PATH}'
           "
