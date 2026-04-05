@@ -5,3 +5,4 @@ deploy/ec2/.env.compose
 deploy/ec2/config.json
 AGENTS.md
 deployment_**.md
+HLS_playback.md

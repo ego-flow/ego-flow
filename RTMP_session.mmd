@@ -1,7 +1,7 @@
 flowchart TD
 
-    Start["사용자가 앱에서 Start Streaming<br/>StreamViewModel.kt::startStream"] --> Login["앱이 backend 로그인<br/>EgoFlowAuthClient.kt::login<br/>EgoFlowBackendClient.kt::login"]
-    Login --> Register["POST /api/v1/streams/register<br/>EgoFlowStreamClient.kt::registerStream<br/>EgoFlowBackendClient.kt::registerStreamSession"]
+    Start["사용자가 앱에서 Start Streaming<br/>StreamViewModel.kt::startStream"] --> Login["앱이 backend 로그인<br/>EgoFlowBackendClient.kt::login<br/>(독립 클라이언트: EgoFlowAuthClient.kt::login)"]
+    Login --> Register["POST /api/v1/streams/register<br/>EgoFlowBackendClient.kt::registerStreamSession<br/>(독립 클라이언트: EgoFlowStreamClient.kt::registerStream)"]
 
     subgraph RegisterFlow[등록과 예약 생성]
         Register --> AccessCheck["repository maintain 권한 확인<br/>repo-access.middleware.ts::repoAccess<br/>repository.service.ts::assertRepositoryAccess"]
@@ -27,7 +27,7 @@ flowchart TD
     AllowPublish --> StreamReadyHook["MediaMTX -> stream-ready hook<br/>mediamtx.yml::runOnReady<br/>stream-ready-wrapper.sh"]
 
     subgraph ReadyFlow[실제 송출 시작 확정]
-        StreamReadyHook --> ResolveReadySession["sourceId 또는 path 기준 session 조회<br/>hooks.routes.ts::POST /stream-ready<br/>recording-session.service.ts::resolveRecordingSessionIdForReady"]
+        StreamReadyHook --> ResolveReadySession["path(Redis) 또는 path+query(DB) 기준 session 조회<br/>hooks.routes.ts::POST /stream-ready<br/>recording-session.service.ts::resolveRecordingSessionIdForReady"]
         ResolveReadySession --> PromoteStreaming["RecordingSession 상태를 STREAMING 으로 전환<br/>recording-session.service.ts::handleStreamReady"]
         PromoteStreaming --> SaveSource["sourceId sourceType readyAt 저장<br/>recording-session.service.ts::handleStreamReady"]
         SaveSource --> RefreshLiveRedis["Redis repo path source pointer 갱신<br/>recording-session.service.ts::handleStreamReady"]
@@ -93,13 +93,14 @@ flowchart TD
     end
 
     subgraph FinalizeRules[finalize enqueue 조건]
-        TryFinalize --> CompletedSegments{"COMPLETED segment 존재<br/>recording-session.service.ts::tryEnqueueFinalize"}
-        CompletedSegments -->|없음 grace 이전| WaitMore["FINALIZING 유지 후 재시도<br/>recording-session.service.ts::tryEnqueueFinalize"]
-        CompletedSegments -->|없음 grace 초과| FailNoSegment["FAILED<br/>recording-session.service.ts::markSessionFailed"]
-        CompletedSegments -->|있음| WritingSegments{"WRITING segment 존재<br/>recording-session.service.ts::tryEnqueueFinalize"}
+        TryFinalize --> WritingSegments{"WRITING segment 존재<br/>recording-session.service.ts::tryEnqueueFinalize"}
         WritingSegments -->|있음 max wait 이전| WaitFlush["마지막 flush 대기<br/>recording-session.service.ts::tryEnqueueFinalize"]
         WritingSegments -->|있음 max wait 초과| FailFlushTimeout["FAILED<br/>recording-session.service.ts::markSessionFailed"]
-        WritingSegments -->|없음| EnqueueFinalize["recording-finalize job enqueue<br/>processing.service.ts::enqueueRecordingFinalize"]
+        WritingSegments -->|없음| CompletedSegments{"COMPLETED segment 존재<br/>recording-session.service.ts::tryEnqueueFinalize"}
+        CompletedSegments -->|없음 grace 이전| WaitMore["FINALIZING 유지 후 재시도<br/>recording-session.service.ts::tryEnqueueFinalize"]
+        CompletedSegments -->|없음 grace 초과| FailNoSegment["FAILED<br/>recording-session.service.ts::markSessionFailed"]
+        CompletedSegments -->|있음| UpsertVideo["Video 레코드 upsert (PENDING)<br/>recording-session.service.ts::tryEnqueueFinalize"]
+        UpsertVideo --> EnqueueFinalize["recording-finalize job enqueue<br/>processing.service.ts::enqueueRecordingFinalize"]
     end
 
     subgraph WorkerFlow[최종 video 생성]
