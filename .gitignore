@@ -1,5 +1,5 @@
 .claude
 .codex
 AGENTS.md
-ego-flow-data/
+ego-flow-data**/
 Impl docs/
