@@ -1,8 +1,5 @@
 .claude
 .codex
 AGENTS.md
-deployment_**.md
-HLS_playback_test.md
-RTMPS.md
-RTMPS_**.md
-ego-flow-data-new/
+ego-flow-data/
+Impl docs/
