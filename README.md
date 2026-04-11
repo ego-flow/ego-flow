@@ -4,33 +4,38 @@ This workspace contains the main EgoFlow projects:
 
 - `ego-flow-app`: client/mobile or glasses-side application
 - `ego-flow-server`: backend APIs, dashboard, worker, and supporting infrastructure
+- `scripts/server-up.sh`: parent-repo helper for refreshing a server checkout and restarting the stack
 
 ## Repository Layout
 
 ```text
 ego-flow/
+├── scripts/
 ├── ego-flow-app/
 └── ego-flow-server/
 ```
 
 ## Quick Start
 
-The backend stack is the easiest entry point for local evaluation.
+The server stack is the main entry point for both local machines and remote Linux servers.
 
 ```bash
 cd ego-flow-server
-./scripts/dev.sh up
+cp config.json.example config.json
+cp .env.example .env
+./scripts/run.sh doctor
+./scripts/run.sh up
 ```
 
 Useful follow-up commands:
 
 ```bash
-./scripts/dev.sh logs
-./scripts/dev.sh ps
-./scripts/dev.sh down
+./scripts/run.sh logs
+./scripts/run.sh ps
+./scripts/run.sh down
 ```
 
-`./scripts/dev.sh up` now starts the backend stack and dashboard together.
+`./scripts/run.sh up` builds and starts the full stack: postgres, redis, backend, worker, dashboard, proxy, and MediaMTX.
 
 With the current dashboard implementation you can:
 
@@ -40,8 +45,18 @@ With the current dashboard implementation you can:
 - monitor active live HLS streams
 - manage users and target-directory settings as admin
 
+## Server Refresh
+
+When this parent repository is cloned on a remote server, the standard refresh path is:
+
+```bash
+./scripts/server-up.sh
+```
+
+The helper stops the current stack, pulls the latest parent repo commit, updates submodules, and then runs `ego-flow-server/scripts/run.sh up`.
+
 ## Where To Start
 
-- Server setup and local Docker workflow: `ego-flow-server/README.md`
+- Server setup and runtime workflow: `ego-flow-server/README.md`
 - Server implementation details: `ego-flow-server/guide/EgoFlow_IMPLEMENTATION_GUIDE.md`
 - Server roadmap: `ego-flow-server/guide/EgoFlow_TASK_ROADMAP.md`

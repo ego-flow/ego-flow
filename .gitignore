@@ -1,8 +1,8 @@
 .claude
 .codex
-deploy/ec2/.env
-deploy/ec2/.env.compose
-deploy/ec2/config.json
 AGENTS.md
 deployment_**.md
-HLS_playback.md
+HLS_playback_test.md
+RTMPS.md
+RTMPS_**.md
+ego-flow-data-new/
