@@ -6,3 +6,7 @@
 	path = ego-flow-server
 	url = https://github.com/ego-flow/ego-flow-server.git
 	branch = main
+[submodule "ego-flow-py"]
+	path = ego-flow-py
+	url = https://github.com/ego-flow/ego-flow-py.git
+	branch = main

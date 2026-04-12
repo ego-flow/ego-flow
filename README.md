@@ -4,6 +4,7 @@ This workspace contains the main EgoFlow projects:
 
 - `ego-flow-app`: client/mobile or glasses-side application
 - `ego-flow-server`: backend APIs, dashboard, worker, and supporting infrastructure
+- `ego-flow-py`: Python package scaffold for loading EgoFlow video datasets in research environments
 - `scripts/server-up.sh`: parent-repo helper for refreshing a server checkout and restarting the stack
 
 ## Repository Layout
@@ -12,6 +13,7 @@ This workspace contains the main EgoFlow projects:
 ego-flow/
 ├── scripts/
 ├── ego-flow-app/
+├── ego-flow-py/
 └── ego-flow-server/
 ```
 
@@ -57,6 +59,7 @@ The helper stops the current stack, pulls the latest parent repo commit, updates
 
 ## Where To Start
 
+- Python dataset package: `ego-flow-py/README.md`
 - Server setup and runtime workflow: `ego-flow-server/README.md`
 - Server implementation details: `ego-flow-server/guide/EgoFlow_IMPLEMENTATION_GUIDE.md`
 - Server roadmap: `ego-flow-server/guide/EgoFlow_TASK_ROADMAP.md`
