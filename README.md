@@ -61,5 +61,3 @@ The helper stops the current stack, pulls the latest parent repo commit, updates
 
 - Python dataset package: `ego-flow-py/README.md`
 - Server setup and runtime workflow: `ego-flow-server/README.md`
-- Server implementation details: `ego-flow-server/guide/EgoFlow_IMPLEMENTATION_GUIDE.md`
-- Server roadmap: `ego-flow-server/guide/EgoFlow_TASK_ROADMAP.md`
